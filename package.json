@@ -1,0 +1,22 @@
+{
+  "name": "student-management-api",
+  "version": "1.0.0",
+  "description": "Student management REST API built with JavaScript, Express, and MongoDB",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "joi": "^18.2.9",
+    "mongoose": "^8.19.1"
+  },
+  "devDependencies": {
+    "supertest": "^7.1.4"
+  }
+}
