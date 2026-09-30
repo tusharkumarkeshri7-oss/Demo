@@ -13,8 +13,23 @@ const studentSchema = new mongoose.Schema({
     match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   },
   dateOfBirth: { type: String, default: null },
-  grade: { type: String, default: null, maxlength: 255 }
+  grade: { type: String, default: null, maxlength: 255 },
+  attendance: [{
+    date: { type: String, required: true },
+    status: { type: String, enum: ['present', 'absent', 'late', 'excused'], required: true }
+  }],
+  marks: [{
+    subject: { type: String, required: true, trim: true, maxlength: 255 },
+    score: { type: Number, required: true, min: 0 },
+    maxScore: { type: Number, required: true, min: 0.01, default: 100 },
+    date: { type: String, required: true }
+  }]
 }, { timestamps: true, versionKey: false });
+
+studentSchema.path('marks').validate((marks) =>
+  marks.every((mark) => mark.score <= mark.maxScore),
+  'A mark score cannot exceed its maximum score.'
+);
 
 const Student = mongoose.models.Student || mongoose.model('Student', studentSchema);
 
@@ -28,6 +43,14 @@ function toStudent(document) {
     email: student.email,
     dateOfBirth: student.dateOfBirth ?? null,
     grade: student.grade ?? null,
+    attendance: (student.attendance ?? []).map(({ date, status }) => ({ date, status })),
+    marks: (student.marks ?? []).map((mark) => ({
+      id: String(mark._id),
+      subject: mark.subject,
+      score: mark.score,
+      maxScore: mark.maxScore,
+      date: mark.date
+    })),
     createdAt: new Date(student.createdAt).toISOString(),
     updatedAt: new Date(student.updatedAt).toISOString()
   };
@@ -82,6 +105,97 @@ function createStudentModel(model = Student) {
         runValidators: true
       }).exec();
       return toStudent(document);
+    },
+
+    async getAttendance(id) {
+      const document = await model.findById(id).exec();
+      return document ? (document.attendance ?? []).map(({ date, status }) => ({ date, status })) : null;
+    },
+
+    async setAttendance(id, date, status) {
+      const document = await model.findById(id).exec();
+      if (!document) return null;
+      const record = document.attendance.find((entry) => entry.date === date);
+      if (record) record.status = status;
+      else document.attendance.push({ date, status });
+      await document.save();
+      return { date, status };
+    },
+
+    async getMarks(id) {
+      const document = await model.findById(id).exec();
+      return document ? (document.marks ?? []).map((mark) => ({
+        id: String(mark._id),
+        subject: mark.subject,
+        score: mark.score,
+        maxScore: mark.maxScore,
+        date: mark.date
+      })) : null;
+    },
+
+    async addMark(id, input) {
+      const document = await model.findById(id).exec();
+      if (!document) return null;
+      document.marks.push(input);
+      await document.save();
+      const mark = document.marks.at(-1);
+      return {
+        id: String(mark._id),
+        subject: mark.subject,
+        score: mark.score,
+        maxScore: mark.maxScore,
+        date: mark.date
+      };
+    },
+
+    async updateMark(id, markId, input) {
+      const document = await model.findById(id).exec();
+      if (!document) return null;
+      const mark = document.marks.id(markId);
+      if (!mark) return null;
+      Object.assign(mark, input);
+      await document.save();
+      return {
+        id: String(mark._id),
+        subject: mark.subject,
+        score: mark.score,
+        maxScore: mark.maxScore,
+        date: mark.date
+      };
+    },
+
+    async dashboard() {
+      const [totalStudents, attendanceByStatus, markSummary] = await Promise.all([
+        model.countDocuments().exec(),
+        model.aggregate([
+          { $unwind: '$attendance' },
+          { $group: { _id: '$attendance.status', count: { $sum: 1 } } }
+        ]).exec(),
+        model.aggregate([
+          { $unwind: '$marks' },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              averagePercentage: {
+                $avg: { $multiply: [{ $divide: ['$marks.score', '$marks.maxScore'] }, 100] }
+              }
+            }
+          }
+        ]).exec()
+      ]);
+      const attendance = Object.fromEntries(
+        ['present', 'absent', 'late', 'excused'].map((status) => [status, 0])
+      );
+      for (const item of attendanceByStatus) attendance[item._id] = item.count;
+      return {
+        totalStudents,
+        attendance,
+        marks: {
+          count: markSummary[0]?.count ?? 0,
+          averagePercentage: markSummary[0]?.averagePercentage ?? null
+        }
+      };
     },
 
     async delete(id) {

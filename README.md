@@ -23,7 +23,7 @@ The API listens at `http://localhost:3000` and connects to `mongodb://127.0.0.1:
 - `src/routes/` maps HTTP routes to controllers.
 - `src/controllers/` handles request and response logic.
 - `src/models/` contains student database queries and mapping.
-- `src/middleware/` contains request validation and error handling.
+- `src/middleware/` contains error handling.
 - `src/app.js` configures the Express application; `src/server.js` starts it.
 
 ## Endpoints
@@ -32,9 +32,16 @@ The API listens at `http://localhost:3000` and connects to `mongodb://127.0.0.1:
 | --- | --- | --- |
 | GET | `/health` | Health check |
 | GET | `/api/students` | List students; accepts `search`, `grade`, `page`, and `limit` query parameters |
+| GET | `/api/students/dashboard` | Student totals, attendance counts, and average mark percentage |
 | GET | `/api/students/:id` | Get a student |
 | POST | `/api/students` | Create a student |
 | PATCH | `/api/students/:id` | Update supplied student fields |
+| PATCH | `/api/students/:id/profile` | Update supplied student profile fields |
+| GET | `/api/students/:id/attendance` | Get the student's attendance records |
+| PUT | `/api/students/:id/attendance/:date` | Record or update attendance for a `YYYY-MM-DD` date |
+| GET | `/api/students/:id/marks` | Get the student's marks |
+| POST | `/api/students/:id/marks` | Add a mark with subject, score, optional maxScore and date |
+| PATCH | `/api/students/:id/marks/:markId` | Update a mark |
 | DELETE | `/api/students/:id` | Delete a student |
 
 Create request example:

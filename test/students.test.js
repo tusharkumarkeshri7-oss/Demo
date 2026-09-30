@@ -7,10 +7,12 @@ const { Student } = require('../src/models/studentModel');
 let app;
 let records;
 let nextId;
+let nextMarkId;
 
 beforeEach(() => {
   records = new Map();
   nextId = 1;
+  nextMarkId = 1;
   const repository = {
     async list({ search, grade, page, limit }) {
       let students = [...records.values()];
@@ -43,6 +45,8 @@ beforeEach(() => {
         email: input.email.trim().toLowerCase(),
         dateOfBirth: input.dateOfBirth?.trim() || null,
         grade: input.grade?.trim() || null,
+        attendance: [],
+        marks: [],
         createdAt: now,
         updatedAt: now
       };
@@ -58,6 +62,54 @@ beforeEach(() => {
       }
       Object.assign(student, updates, { updatedAt: new Date().toISOString() });
       return student;
+    },
+    async getAttendance(id) {
+      const student = records.get(String(id));
+      return student ? student.attendance : null;
+    },
+    async setAttendance(id, date, status) {
+      const student = records.get(String(id));
+      if (!student) return null;
+      const record = student.attendance.find((entry) => entry.date === date);
+      if (record) record.status = status;
+      else student.attendance.push({ date, status });
+      return { date, status };
+    },
+    async getMarks(id) {
+      const student = records.get(String(id));
+      return student ? student.marks : null;
+    },
+    async addMark(id, input) {
+      const student = records.get(String(id));
+      if (!student) return null;
+      const mark = { id: String(nextMarkId++), ...input };
+      student.marks.push(mark);
+      return mark;
+    },
+    async updateMark(id, markId, input) {
+      const student = records.get(String(id));
+      const mark = student?.marks.find((entry) => entry.id === markId);
+      if (!mark) return null;
+      Object.assign(mark, input);
+      return mark;
+    },
+    async dashboard() {
+      const students = [...records.values()];
+      const attendance = { present: 0, absent: 0, late: 0, excused: 0 };
+      const marks = students.flatMap((student) => student.marks);
+      for (const student of students) {
+        for (const record of student.attendance) attendance[record.status] += 1;
+      }
+      return {
+        totalStudents: students.length,
+        attendance,
+        marks: {
+          count: marks.length,
+          averagePercentage: marks.length
+            ? marks.reduce((total, mark) => total + (mark.score / mark.maxScore) * 100, 0) / marks.length
+            : null
+        }
+      };
     },
     async delete(id) {
       return records.delete(String(id));
@@ -91,9 +143,13 @@ test('creates, reads, updates, and deletes a student', async () => {
 
 test('validates input and rejects duplicate email addresses', async () => {
   await request(app).post('/api/students').send({ firstName: 'Ada' }).expect(400);
+  await request(app).post('/api/students').send({
+    firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com', extra: 'unexpected'
+  }).expect(400);
   const student = { firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com' };
   await request(app).post('/api/students').send(student).expect(201);
   await request(app).post('/api/students').send({ ...student, email: 'ADA@example.com' }).expect(409);
+  await request(app).patch('/api/students/1').send({}).expect(400);
 });
 
 test('filters and paginates student results', async () => {
@@ -127,4 +183,39 @@ test('Mongoose student schema normalizes email and validates required fields', a
 
   const invalidStudent = new Student({ email: 'not-an-email' });
   await assert.rejects(invalidStudent.validate(), { name: 'ValidationError' });
+});
+
+test('updates profiles, records attendance and marks, and summarizes the dashboard', async () => {
+  const created = await request(app).post('/api/students').send({
+    firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com'
+  }).expect(201);
+  const id = created.body.data.id;
+
+  await request(app).patch(`/api/students/${id}/profile`).send({ grade: '12' }).expect(200);
+  await request(app).put(`/api/students/${id}/attendance/2026-09-30`).send({ status: 'absent' }).expect(200);
+  const updatedAttendance = await request(app)
+    .put(`/api/students/${id}/attendance/2026-09-30`).send({ status: 'present' }).expect(200);
+  assert.deepEqual(updatedAttendance.body.data, { date: '2026-09-30', status: 'present' });
+  const attendance = await request(app).get(`/api/students/${id}/attendance`).expect(200);
+  assert.equal(attendance.body.data.length, 1);
+
+  const createdMark = await request(app).post(`/api/students/${id}/marks`).send({
+    subject: 'Mathematics', score: 8, maxScore: 10, date: '2026-09-30'
+  }).expect(201);
+  const markId = createdMark.body.data.id;
+  await request(app).patch(`/api/students/${id}/marks/${markId}`).send({ score: 9 }).expect(200);
+  const marks = await request(app).get(`/api/students/${id}/marks`).expect(200);
+  assert.equal(marks.body.data[0].score, 9);
+
+  const dashboard = await request(app).get('/api/students/dashboard').expect(200);
+  assert.equal(dashboard.body.data.totalStudents, 1);
+  assert.equal(dashboard.body.data.attendance.present, 1);
+  assert.equal(dashboard.body.data.marks.averagePercentage, 90);
+  const defaultedMark = await request(app).post(`/api/students/${id}/marks`).send({
+    subject: 'History', score: 7
+  }).expect(201);
+  assert.equal(defaultedMark.body.data.maxScore, 100);
+  assert.match(defaultedMark.body.data.date, /^\d{4}-\d{2}-\d{2}$/);
+  await request(app).put(`/api/students/${id}/attendance/2026-02-30`).send({ status: 'present' }).expect(400);
+  await request(app).post(`/api/students/${id}/marks`).send({ subject: 'Science', score: 11, maxScore: 10 }).expect(400);
 });
