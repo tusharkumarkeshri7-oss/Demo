@@ -1,3 +1,4 @@
+require("dotenv").config();
 const { createApp } = require('./app');
 const { connectDatabase, disconnectDatabase } = require('./config/database');
 const { Student, createStudentModel } = require('./models/studentModel');
@@ -5,7 +6,7 @@ const { Student, createStudentModel } = require('./models/studentModel');
 const port = Number.parseInt(process.env.PORT || '3000', 10);
 
 async function startServer() {
-  await connectDatabase();
+  await connectDatabase(process.env.MONGO_URI);
   const app = createApp(createStudentModel(Student));
   const server = app.listen(port, () => {
     console.log(`Student management API listening on http://localhost:${port}`);
