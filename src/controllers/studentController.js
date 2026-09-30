@@ -1,3 +1,4 @@
+const students = require("../models/studentModel")
 function createStudentController(students) {
   return {
     async list(request, response, next) {
